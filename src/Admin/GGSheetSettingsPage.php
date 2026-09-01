@@ -254,11 +254,15 @@ class GGSheetSettingsPage
      * Returns the existing saved value when the field is left empty so the key
      * is never accidentally cleared by saving another tab.
      *
-     * @param string $value Raw textarea input.
+     * @param string|null $value Raw textarea input.
      * @return string Normalised JSON string, or preserved existing value.
      */
-    public function sanitizeServiceAccountJson(string $value): string
+    public function sanitizeServiceAccountJson(string|null $value): string
     {
+        if ($value === null) {
+            return (string) get_option(self::OPT_SERVICE_ACCOUNT, '');
+        }
+
         $value = trim($value);
 
         if ($value === '') {
