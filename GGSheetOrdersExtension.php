@@ -81,10 +81,8 @@ class GGSheetOrdersExtension extends AbstractExtension
 
     public function register_hooks(): void
     {
-        // Admin settings page.
-        if (is_admin()) {
-            (new GGSheetSettingsPage())->register();
-        }
+        // Register the Google Sheet tab inside Ecommerce Settings page.
+        (new GGSheetSettingsPage())->register();
 
         // Hook into base-ecommerce order lifecycle events.
         add_action(

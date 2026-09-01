@@ -21,5 +21,5 @@
         "rest"
     ],
     "auto_activate": true,
-    "settings_url": "admin.php?page=jankx-ggsheet-orders-settings"
+    "settings_url": "admin.php?page=jankx-ecommerce-general&tab=ggsheet"
 }

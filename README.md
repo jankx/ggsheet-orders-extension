@@ -27,7 +27,7 @@ Extension cho **Jankx Theme** tự động đồng bộ đơn hàng vào Google 
 
 ### 2. Cấu hình trong WordPress
 
-**Settings → GGSheet Orders**:
+Vào **Ecommerce → Cài đặt chung → tab Google Sheet** trong wp-admin để cấu hình.
 
 | Field | Mô tả |
 |---|---|
@@ -35,55 +35,54 @@ Extension cho **Jankx Theme** tự động đồng bộ đơn hàng vào Google 
 | **Spreadsheet ID** | Chuỗi ID trong URL của Google Sheet (giữa `/d/` và `/edit`) |
 | **Sheet / Tab Name** | Tên tab trong file (mặc định: `Orders`) |
 
-### 3. Cấu trúc cột Sheet
-
-| A | B | C | D | E | F | G | H | I | J | K | L |
-|---|---|---|---|---|---|---|---|---|---|---|---|
-| Order Number | Date Created | Status | Customer Name | Customer Email | Customer Phone | Customer Address | Payment Method | Total | Currency | Items | Last Updated |
+Cấu trúc cột không bị fix cứng (hardcode) mà được quản lý qua `ColumnRegistry`. Các cột mặc định chiếm priority từ `10` đến `230`. Bạn có thể dễ dàng xem cấu trúc cột thực tế (đã bao gồm cột do các extension khác inject) tại trang cài đặt.
 
 ## Architecture
 
 Extension tuân theo các design pattern:
 
 ```
-GGSheetOrdersExtension          ← Singleton + AbstractExtension (entry point, WP hooks)
-    └── OrderSheetSync          ← Service Layer (use-cases: syncNewOrder, syncOrderUpdate)
-            ├── GoogleSheetClientInterface  ← Strategy (transport layer)
-            │       └── ServiceAccountSheetClient  ← Concrete: JWT/OAuth2 + REST API v4
-            ├── RowIndexRepositoryInterface ← Repository (persist row mapping)
-            │       └── WordPressRowIndexRepository ← Concrete: wp_options
-            └── OrderDataMapper             ← Data Mapper (Order → flat row array)
+GGSheetOrdersExtension          ← Singleton + AbstractExtension
+    ├── OrderSheetSync          ← Service Layer
+    │       ├── GoogleSheetClientInterface  ← Strategy (transport)
+    │       ├── RowIndexRepositoryInterface ← Repository (persist row mapping)
+    │       └── OrderDataMapper             ← Data Mapper (dựa trên ColumnRegistry)
+    │
+    └── ColumnRegistry          ← Registry (Quản lý các cột linh hoạt)
 ```
 
-## Extension Points (WordPress Filters)
+## Dành cho Developer (Tích hợp Extension khác)
 
-### Swap client implementation
+Để giữ cấu trúc dữ liệu không bị phá vỡ khi nhiều extension muốn ghi đè, hãy dùng **Action Hook** `jankx/ggsheet_orders/register_columns` thay vì filter array.
+
+Ví dụ, `flexible-tour-pricing` muốn thêm các cột liên quan đến giá thay đổi:
 
 ```php
-// Dùng implementation khác (e.g. OAuth2 user flow)
-add_filter('jankx/ggsheet_orders/client', function () {
-    return new MyCustomSheetClient();
+add_action('jankx/ggsheet_orders/register_columns', function ($registry) {
+    // Adds a column right after Total (priority 210)
+    $registry->addColumn(
+        'adult_count', 
+        __('Số NL', 'jankx'), 
+        211, 
+        function ($order) {
+            // Your logic to extract data from the $order here
+            return 2; 
+        }
+    );
+
+    // Adds a column near the end (priority 800)
+    $registry->addColumn(
+        'tour_date', 
+        __('Ngày khởi hành', 'jankx'), 
+        800, 
+        function ($order) {
+            return get_post_meta($order->getId(), '_tour_date', true);
+        }
+    );
 });
 ```
 
-### Swap repository implementation
-
-```php
-// Lưu row index vào custom table thay vì wp_options
-add_filter('jankx/ggsheet_orders/row_index_repository', function () {
-    return new MyDatabaseRowIndexRepository();
-});
-```
-
-### Tùy chỉnh dữ liệu row
-
-```php
-// Thêm / bớt cột trước khi ghi vào Sheet
-add_filter('jankx/ggsheet_orders/row_data', function (array $row, Order $order) {
-    $row[] = $order->getCustomerAddress(); // thêm cột phụ
-    return $row;
-}, 10, 2);
-```
+Hệ thống sẽ tự động tổng hợp, sắp xếp ưu tiên dựa theo tham số `priority`, và push sang Google Sheets chính xác. Không cần lo độ lệch cột!
 
 ### Action hooks
 

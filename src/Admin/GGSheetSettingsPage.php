@@ -1,22 +1,32 @@
 <?php
 namespace Jankx\Extensions\GGSheetOrders\Admin;
 
+use Jankx\Extensions\Ecommerce\Admin\EcommerceSettingsPage;
+use Jankx\Extensions\GGSheetOrders\Registry\ColumnRegistry;
+
 /**
- * Admin settings page for the GGSheet Orders extension.
+ * Integrates GGSheet Orders settings as a tab inside the Ecommerce Settings page.
  *
- * Registered under Settings → "GGSheet Orders" in wp-admin.
- * Stores all configuration in WordPress options:
+ * Instead of registering a standalone admin menu page, this class hooks into
+ * the two extension points exposed by EcommerceSettingsPage:
  *
- *   - jankx_ggsheet_service_account_json  Raw JSON of the SA key file
- *   - jankx_ggsheet_spreadsheet_id        Google Sheets file ID
- *   - jankx_ggsheet_sheet_name            Sheet / tab name (default: Orders)
+ *   - Filter `jankx/ecommerce/settings/tabs`      → register the "Google Sheet" tab label
+ *   - Action `jankx/ecommerce/settings/render_tab` → render the settings form when active
+ *
+ * Options are saved to the same EcommerceSettingsPage option group so they are
+ * processed by WordPress's built-in options.php handler with no extra routing.
+ *
+ * Settings stored:
+ *   - jankx_ggsheet_service_account_json  : raw (normalised) JSON of the SA key
+ *   - jankx_ggsheet_spreadsheet_id        : Google Sheets file ID
+ *   - jankx_ggsheet_sheet_name            : sheet / tab name (default: Orders)
  *
  * @package Jankx\Extensions\GGSheetOrders\Admin
  */
 class GGSheetSettingsPage
 {
-    const MENU_SLUG = 'jankx-ggsheet-orders-settings';
-    const OPTION_GROUP = 'jankx_ggsheet_orders_options';
+    /** Tab slug registered in EcommerceSettingsPage. */
+    const TAB_SLUG = 'ggsheet';
 
     const OPT_SERVICE_ACCOUNT = 'jankx_ggsheet_service_account_json';
     const OPT_SPREADSHEET_ID = 'jankx_ggsheet_spreadsheet_id';
@@ -24,186 +34,233 @@ class GGSheetSettingsPage
 
     public function register(): void
     {
-        add_action('admin_menu', [$this, 'addMenuPage']);
+        // Inject our tab label into the Ecommerce Settings tab list.
+        add_filter('jankx/ecommerce/settings/tabs', [$this, 'registerTab']);
+
+        // Render our settings form when our tab is active.
+        add_action('jankx/ecommerce/settings/render_tab', [$this, 'renderTab']);
+
+        // Register our options under the shared Ecommerce option group so that
+        // WordPress's options.php handles the save without custom routing.
         add_action('admin_init', [$this, 'registerSettings']);
     }
 
-    public function addMenuPage(): void
+    // -------------------------------------------------------------------------
+    // Hook callbacks
+    // -------------------------------------------------------------------------
+
+    /**
+     * Append the "Google Sheet" tab to the Ecommerce Settings tab list.
+     *
+     * @param array $tabs Existing tabs (slug => label).
+     * @return array
+     */
+    public function registerTab(array $tabs): array
     {
-        add_options_page(
-            __('GGSheet Orders Settings', 'jankx'),
-            __('GGSheet Orders', 'jankx'),
-            'manage_options',
-            self::MENU_SLUG,
-            [$this, 'renderPage']
-        );
+        $tabs[self::TAB_SLUG] = __('Google Sheet', 'jankx');
+        return $tabs;
     }
+
+    /**
+     * Render the settings form when our tab slug is active.
+     *
+     * @param string $currentTab Active tab slug passed by EcommerceSettingsPage.
+     */
+    public function renderTab(string $currentTab): void
+    {
+        if ($currentTab !== self::TAB_SLUG) {
+            return;
+        }
+
+        $this->render();
+    }
+
+    // -------------------------------------------------------------------------
+    // Settings registration
+    // -------------------------------------------------------------------------
 
     public function registerSettings(): void
     {
-        register_setting(self::OPTION_GROUP, self::OPT_SERVICE_ACCOUNT, [
+        register_setting(EcommerceSettingsPage::OPTION_GROUP, self::OPT_SERVICE_ACCOUNT, [
             'sanitize_callback' => [$this, 'sanitizeServiceAccountJson'],
         ]);
-        register_setting(self::OPTION_GROUP, self::OPT_SPREADSHEET_ID, [
+
+        register_setting(EcommerceSettingsPage::OPTION_GROUP, self::OPT_SPREADSHEET_ID, [
             'sanitize_callback' => 'sanitize_text_field',
         ]);
-        register_setting(self::OPTION_GROUP, self::OPT_SHEET_NAME, [
+
+        register_setting(EcommerceSettingsPage::OPTION_GROUP, self::OPT_SHEET_NAME, [
             'sanitize_callback' => 'sanitize_text_field',
         ]);
-
-        // ── Section: API Credentials ──────────────────────────────────────
-        add_settings_section(
-            'jankx_ggsheet_credentials',
-            __('Google API Credentials', 'jankx'),
-            [$this, 'renderSectionCredentials'],
-            self::MENU_SLUG
-        );
-
-        add_settings_field(
-            self::OPT_SERVICE_ACCOUNT,
-            __('Service Account JSON', 'jankx'),
-            [$this, 'renderFieldServiceAccount'],
-            self::MENU_SLUG,
-            'jankx_ggsheet_credentials'
-        );
-
-        // ── Section: Spreadsheet Target ───────────────────────────────────
-        add_settings_section(
-            'jankx_ggsheet_target',
-            __('Spreadsheet Target', 'jankx'),
-            [$this, 'renderSectionTarget'],
-            self::MENU_SLUG
-        );
-
-        add_settings_field(
-            self::OPT_SPREADSHEET_ID,
-            __('Spreadsheet ID', 'jankx'),
-            [$this, 'renderFieldSpreadsheetId'],
-            self::MENU_SLUG,
-            'jankx_ggsheet_target'
-        );
-
-        add_settings_field(
-            self::OPT_SHEET_NAME,
-            __('Sheet / Tab Name', 'jankx'),
-            [$this, 'renderFieldSheetName'],
-            self::MENU_SLUG,
-            'jankx_ggsheet_target'
-        );
     }
 
-    // ── Render callbacks ─────────────────────────────────────────────────────
+    // -------------------------------------------------------------------------
+    // Render
+    // -------------------------------------------------------------------------
 
-    public function renderPage(): void
+    private function render(): void
     {
-        if (!current_user_can('manage_options')) {
-            return;
-        }
         ?>
-        <div class="wrap">
-            <h1>
-                <?php esc_html_e('GGSheet Orders Settings', 'jankx'); ?>
-            </h1>
-            <p>
+        <h2><?php esc_html_e('Google Sheet — Đồng bộ đơn hàng', 'jankx'); ?></h2>
+        <p class="description">
+            <?php esc_html_e(
+                'Cấu hình Google Service Account để tự động ghi đơn hàng mới vào Google Sheet và cập nhật dòng tương ứng khi đơn hàng thay đổi.',
+                'jankx'
+            ); ?>
+        </p>
+
+        <form method="post" action="options.php">
+            <?php settings_fields(EcommerceSettingsPage::OPTION_GROUP); ?>
+
+            <h3><?php esc_html_e('Thông tin xác thực Google API', 'jankx'); ?></h3>
+            <p class="description">
                 <?php esc_html_e(
-                    'Configure a Google Service Account to automatically sync orders to a Google Sheet file.',
+                    'Paste toàn bộ nội dung file JSON key tải từ Google Cloud Console → IAM & Admin → Service Accounts.',
                     'jankx'
                 ); ?>
             </p>
-            <form method="post" action="options.php">
-                <?php
-                settings_fields(self::OPTION_GROUP);
-                do_settings_sections(self::MENU_SLUG);
-                submit_button();
-                ?>
-            </form>
-        </div>
+
+            <table class="form-table">
+                <tr>
+                    <th scope="row">
+                        <label for="<?php echo esc_attr(self::OPT_SERVICE_ACCOUNT); ?>">
+                            <?php esc_html_e('Service Account JSON', 'jankx'); ?>
+                        </label>
+                    </th>
+                    <td>
+                        <?php $hasSavedKey = (bool) get_option(self::OPT_SERVICE_ACCOUNT, ''); ?>
+                        <textarea name="<?php echo esc_attr(self::OPT_SERVICE_ACCOUNT); ?>"
+                            id="<?php echo esc_attr(self::OPT_SERVICE_ACCOUNT); ?>" rows="8" cols="60" placeholder="<?php echo $hasSavedKey
+                                   ? esc_attr(__('(đã lưu — paste JSON mới để thay thế)', 'jankx'))
+                                   : esc_attr('{ "type": "service_account", "project_id": "...", ... }'); ?>"
+                            class="large-text code"></textarea>
+                        <p class="description">
+                            <?php esc_html_e(
+                                'Để trống để giữ nguyên key hiện tại.',
+                                'jankx'
+                            ); ?>
+                            <?php if ($hasSavedKey): ?>
+                                <span style="color:#4caf50;">&#10003; <?php esc_html_e('Đã cấu hình', 'jankx'); ?></span>
+                            <?php else: ?>
+                                <span style="color:#f44336;">&#9888; <?php esc_html_e('Chưa cấu hình', 'jankx'); ?></span>
+                            <?php endif; ?>
+                        </p>
+                    </td>
+                </tr>
+            </table>
+
+            <h3><?php esc_html_e('Đích ghi dữ liệu', 'jankx'); ?></h3>
+            <p class="description">
+                <?php esc_html_e(
+                    'Chỉ định file Google Sheet và tab sẽ nhận dữ liệu đơn hàng.',
+                    'jankx'
+                ); ?>
+            </p>
+
+            <table class="form-table">
+                <tr>
+                    <th scope="row">
+                        <label for="<?php echo esc_attr(self::OPT_SPREADSHEET_ID); ?>">
+                            <?php esc_html_e('Spreadsheet ID', 'jankx'); ?>
+                        </label>
+                    </th>
+                    <td>
+                        <input type="text" name="<?php echo esc_attr(self::OPT_SPREADSHEET_ID); ?>"
+                            id="<?php echo esc_attr(self::OPT_SPREADSHEET_ID); ?>"
+                            value="<?php echo esc_attr(get_option(self::OPT_SPREADSHEET_ID, '')); ?>" class="regular-text"
+                            placeholder="1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgVE2upms" />
+                        <p class="description">
+                            <?php esc_html_e(
+                                'Chuỗi ID dài trong URL của Google Sheet, nằm giữa /d/ và /edit.',
+                                'jankx'
+                            ); ?>
+                        </p>
+                    </td>
+                </tr>
+                <tr>
+                    <th scope="row">
+                        <label for="<?php echo esc_attr(self::OPT_SHEET_NAME); ?>">
+                            <?php esc_html_e('Tên Sheet / Tab', 'jankx'); ?>
+                        </label>
+                    </th>
+                    <td>
+                        <input type="text" name="<?php echo esc_attr(self::OPT_SHEET_NAME); ?>"
+                            id="<?php echo esc_attr(self::OPT_SHEET_NAME); ?>"
+                            value="<?php echo esc_attr(get_option(self::OPT_SHEET_NAME, 'Orders')); ?>" class="regular-text"
+                            placeholder="Orders" />
+                        <p class="description">
+                            <?php esc_html_e(
+                                'Tên tab bên trong file Spreadsheet. Mặc định: Orders.',
+                                'jankx'
+                            ); ?>
+                        </p>
+                    </td>
+                </tr>
+            </table>
+
+            <hr>
+            <h3><?php esc_html_e('Cấu trúc cột', 'jankx'); ?></h3>
+            <p class="description">
+                <?php esc_html_e(
+                    'Dữ liệu đơn hàng sẽ được ghi theo thứ tự cột sau (các extension khác có thể đăng ký thêm cột qua hook `jankx/ggsheet_orders/register_columns`):',
+                    'jankx'
+                ); ?>
+            </p>
+            <table class="widefat striped" style="max-width:800px; margin-top:8px;">
+                <thead>
+                    <tr>
+                        <th><?php esc_html_e('Cột (Vị trí)', 'jankx'); ?></th>
+                        <th><?php esc_html_e('ID Cột', 'jankx'); ?></th>
+                        <th><?php esc_html_e('Tên cột (Ghi chú)', 'jankx'); ?></th>
+                        <th><?php esc_html_e('Độ ưu tiên', 'jankx'); ?></th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <?php
+                    $registry = new ColumnRegistry();
+                    $columns = $registry->getColumns();
+
+                    foreach ($columns as $index => $column):
+                        // Convert 0-index to Excel column letter (A, B, ..., Z, AA, AB)
+                        $colIdx = $index + 1;
+                        $letter = '';
+                        while ($colIdx > 0) {
+                            $modulo = ($colIdx - 1) % 26;
+                            $letter = chr(65 + $modulo) . $letter;
+                            $colIdx = (int) (($colIdx - $modulo) / 26);
+                        }
+                        ?>
+                        <tr>
+                            <td><strong><?php echo esc_html($letter); ?></strong></td>
+                            <td><code><?php echo esc_html($column->getId()); ?></code></td>
+                            <td><?php echo esc_html($column->getLabel()); ?></td>
+                            <td><?php echo (int) $column->getPriority(); ?></td>
+                        </tr>
+                    <?php endforeach; ?>
+                </tbody>
+            </table>
+
+            <?php submit_button(__('Lưu cài đặt', 'jankx')); ?>
+        </form>
         <?php
     }
 
-    public function renderSectionCredentials(): void
-    {
-        echo '<p>' . esc_html__(
-            'Paste the full contents of the Service Account JSON key file downloaded from Google Cloud Console.',
-            'jankx'
-        ) . '</p>';
-    }
-
-    public function renderSectionTarget(): void
-    {
-        echo '<p>' . esc_html__(
-            'Specify which Google Sheet file and which tab/sheet within that file should receive order data.',
-            'jankx'
-        ) . '</p>';
-    }
-
-    public function renderFieldServiceAccount(): void
-    {
-        $value = get_option(self::OPT_SERVICE_ACCOUNT, '');
-        // Show a placeholder instead of the raw JSON so the key is not exposed.
-        $placeholder = $value ? __('(saved — paste new JSON to replace)', 'jankx') : '';
-        ?>
-        <textarea name="<?php echo esc_attr(self::OPT_SERVICE_ACCOUNT); ?>"
-            id="<?php echo esc_attr(self::OPT_SERVICE_ACCOUNT); ?>" rows="8" cols="60"
-            placeholder="<?php echo esc_attr($placeholder ?: '{ "type": "service_account", ... }'); ?>"
-                    class="large-text code"
-                ></textarea>
-        <p class="description">
-            <?php esc_html_e(
-                'Leave blank to keep the existing key. The JSON is stored encrypted in the database.',
-                'jankx'
-            ); ?>
-        </p>
-        <?php
-    }
-
-    public function renderFieldSpreadsheetId(): void
-    {
-        $value = get_option(self::OPT_SPREADSHEET_ID, '');
-        ?>
-        <input type="text" name="<?php echo esc_attr(self::OPT_SPREADSHEET_ID); ?>"
-            id="<?php echo esc_attr(self::OPT_SPREADSHEET_ID); ?>" value="<?php echo esc_attr($value); ?>" class="regular-text"
-            placeholder="1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgVE2upms" />
-        <p class="description">
-            <?php esc_html_e(
-                'The long string in the Google Sheets URL between /d/ and /edit.',
-                'jankx'
-            ); ?>
-        </p>
-        <?php
-    }
-
-    public function renderFieldSheetName(): void
-    {
-        $value = get_option(self::OPT_SHEET_NAME, 'Orders');
-        ?>
-        <input type="text" name="<?php echo esc_attr(self::OPT_SHEET_NAME); ?>"
-            id="<?php echo esc_attr(self::OPT_SHEET_NAME); ?>" value="<?php echo esc_attr($value); ?>" class="regular-text"
-            placeholder="Orders" />
-        <p class="description">
-            <?php esc_html_e(
-                'Name of the sheet tab inside the spreadsheet. Defaults to "Orders".',
-                'jankx'
-            ); ?>
-        </p>
-        <?php
-    }
-
-    // ── Sanitization ─────────────────────────────────────────────────────────
+    // -------------------------------------------------------------------------
+    // Sanitization
+    // -------------------------------------------------------------------------
 
     /**
-     * Validate and sanitize the service account JSON field.
-     * Returns the existing saved value when the field is empty (keep old key).
+     * Validate and sanitize the service account JSON textarea.
+     * Returns the existing saved value when the field is left empty so the key
+     * is never accidentally cleared by saving another tab.
      *
      * @param string $value Raw textarea input.
-     *
-     * @return string Sanitized JSON string or empty string on parse error.
+     * @return string Normalised JSON string, or preserved existing value.
      */
     public function sanitizeServiceAccountJson(string $value): string
     {
         $value = trim($value);
 
-        // Empty = keep current value.
         if ($value === '') {
             return (string) get_option(self::OPT_SERVICE_ACCOUNT, '');
         }
@@ -214,7 +271,7 @@ class GGSheetSettingsPage
             add_settings_error(
                 self::OPT_SERVICE_ACCOUNT,
                 'invalid_json',
-                __('Service Account JSON is not valid JSON. Please paste the exact file contents.', 'jankx')
+                __('Service Account JSON không hợp lệ. Vui lòng paste đúng nội dung file JSON.', 'jankx')
             );
             return (string) get_option(self::OPT_SERVICE_ACCOUNT, '');
         }
@@ -223,16 +280,17 @@ class GGSheetSettingsPage
             add_settings_error(
                 self::OPT_SERVICE_ACCOUNT,
                 'invalid_sa',
-                __('The JSON does not appear to be a valid Service Account key (missing private_key or client_email).', 'jankx')
+                __('File JSON không phải Service Account key hợp lệ (thiếu private_key hoặc client_email).', 'jankx')
             );
             return (string) get_option(self::OPT_SERVICE_ACCOUNT, '');
         }
 
-        // Re-encode to normalise formatting.
         return (string) json_encode($decoded);
     }
 
-    // ── Static helpers ────────────────────────────────────────────────────────
+    // -------------------------------------------------------------------------
+    // Static helpers (used by GGSheetOrdersExtension to read config)
+    // -------------------------------------------------------------------------
 
     public static function getSpreadsheetId(): string
     {
@@ -246,8 +304,6 @@ class GGSheetSettingsPage
 
     /**
      * Return the decoded service account array, or null if not configured.
-     *
-     * @return array|null
      */
     public static function getServiceAccount(): ?array
     {
@@ -257,7 +313,6 @@ class GGSheetSettingsPage
         }
 
         $decoded = json_decode($json, true);
-
         return is_array($decoded) ? $decoded : null;
     }
 }
