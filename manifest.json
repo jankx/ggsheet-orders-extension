@@ -1,0 +1,25 @@
+{
+    "name": "Google Sheet Orders",
+    "description": "Automatically sync new orders to a Google Sheet file. When an order is created a new row is appended; when an order is updated or its status changes the corresponding row is updated in-place using a stored row index.",
+    "version": "1.0.0",
+    "author": "Puleeno Nguyen",
+    "extension_id": "ggsheet-orders",
+    "caller": {
+        "file": "GGSheetOrdersExtension.php",
+        "class": "Jankx\\Extensions\\GGSheetOrders\\GGSheetOrdersExtension"
+    },
+    "requirements": {
+        "php": ">=7.4"
+    },
+    "dependencies": [
+        "base-ecommerce"
+    ],
+    "context": [
+        "frontend",
+        "admin",
+        "ajax",
+        "rest"
+    ],
+    "auto_activate": true,
+    "settings_url": "admin.php?page=jankx-ggsheet-orders-settings"
+}

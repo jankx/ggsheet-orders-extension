@@ -1,0 +1,32 @@
+{
+    "name": "jankx/ggsheet-orders-extension",
+    "description": "Jankx Google Sheet Orders: automatically sync orders to a Google Sheet file with row-level tracking for in-place updates",
+    "type": "library",
+    "autoload": {
+        "psr-4": {
+            "Jankx\\Extensions\\GGSheetOrders\\": "src/"
+        }
+    },
+    "autoload-dev": {
+        "psr-4": {
+            "Jankx\\Extensions\\GGSheetOrders\\Tests\\": "tests/"
+        }
+    },
+    "authors": [
+        {
+            "name": "Puleeno Nguyen",
+            "email": "puleeno@gmail.com"
+        }
+    ],
+    "require": {},
+    "require-dev": {
+        "phpunit/phpunit": "^9.5",
+        "brain/monkey": "^2.6",
+        "mockery/mockery": "^1.5"
+    },
+    "config": {
+        "allow-plugins": {
+            "php-http/discovery": false
+        }
+    }
+}
