@@ -122,7 +122,7 @@ class GGSheetOrdersExtension extends AbstractExtension
      * @param Order $order Newly created order.
      * @param Cart  $cart  The cart that generated it.
      */
-    public function on_order_created(Order $order, Cart $cart): void
+    public function on_order_created(Order $order, ?Cart $cart): void
     {
         $service = $this->getSyncService();
         if (!$service) {
