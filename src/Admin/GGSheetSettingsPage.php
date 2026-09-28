@@ -1,7 +1,6 @@
 <?php
 namespace Jankx\Extensions\GGSheetOrders\Admin;
 
-use Jankx\Extensions\Ecommerce\Admin\EcommerceSettingsPage;
 use Jankx\Extensions\GGSheetOrders\Registry\ColumnRegistry;
 
 /**
@@ -13,8 +12,9 @@ use Jankx\Extensions\GGSheetOrders\Registry\ColumnRegistry;
  *   - Filter `jankx/ecommerce/settings/tabs`      → register the "Google Sheet" tab label
  *   - Action `jankx/ecommerce/settings/render_tab` → render the settings form when active
  *
- * Options are saved to the same EcommerceSettingsPage option group so they are
- * processed by WordPress's built-in options.php handler with no extra routing.
+ * Options are saved under their own option group so submitting this tab
+ * never affects the other Ecommerce settings tabs (options.php writes null
+ * to every group option missing from the submitted form).
  *
  * Settings stored:
  *   - jankx_ggsheet_service_account_json  : raw (normalised) JSON of the SA key
@@ -28,6 +28,8 @@ class GGSheetSettingsPage
     /** Tab slug registered in EcommerceSettingsPage. */
     const TAB_SLUG = 'ggsheet';
 
+    const OPTION_GROUP = 'jankx_ecommerce_ggsheet';
+
     const OPT_SERVICE_ACCOUNT = 'jankx_ggsheet_service_account_json';
     const OPT_SPREADSHEET_ID = 'jankx_ggsheet_spreadsheet_id';
     const OPT_SHEET_NAME = 'jankx_ggsheet_sheet_name';
@@ -40,7 +42,7 @@ class GGSheetSettingsPage
         // Render our settings form when our tab is active.
         add_action('jankx/ecommerce/settings/render_tab', [$this, 'renderTab']);
 
-        // Register our options under the shared Ecommerce option group so that
+        // Register our options under our own option group so that
         // WordPress's options.php handles the save without custom routing.
         add_action('admin_init', [$this, 'registerSettings']);
     }
@@ -81,15 +83,15 @@ class GGSheetSettingsPage
 
     public function registerSettings(): void
     {
-        register_setting(EcommerceSettingsPage::OPTION_GROUP, self::OPT_SERVICE_ACCOUNT, [
+        register_setting(self::OPTION_GROUP, self::OPT_SERVICE_ACCOUNT, [
             'sanitize_callback' => [$this, 'sanitizeServiceAccountJson'],
         ]);
 
-        register_setting(EcommerceSettingsPage::OPTION_GROUP, self::OPT_SPREADSHEET_ID, [
+        register_setting(self::OPTION_GROUP, self::OPT_SPREADSHEET_ID, [
             'sanitize_callback' => 'sanitize_text_field',
         ]);
 
-        register_setting(EcommerceSettingsPage::OPTION_GROUP, self::OPT_SHEET_NAME, [
+        register_setting(self::OPTION_GROUP, self::OPT_SHEET_NAME, [
             'sanitize_callback' => 'sanitize_text_field',
         ]);
     }
@@ -110,7 +112,7 @@ class GGSheetSettingsPage
         </p>
 
         <form method="post" action="options.php">
-            <?php settings_fields(EcommerceSettingsPage::OPTION_GROUP); ?>
+            <?php settings_fields(self::OPTION_GROUP); ?>
 
             <h3><?php esc_html_e('Thông tin xác thực Google API', 'jankx'); ?></h3>
             <p class="description">
